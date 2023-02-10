@@ -16,12 +16,24 @@ Description: 微定制组队通用脚本
 Update: 2022/11/01 更新入会算法，内置船新入会本地算法
 """
 
-import time, requests, sys, re, os, json, random
+import json
+import os
+import random
+import re
+import sys
+import time
 from datetime import datetime
-from urllib.parse import quote_plus, unquote_plus
 from functools import partial
+from urllib.parse import quote_plus, unquote_plus
+
+import requests
+
+# 默认重试次数为5
+_retry_count = 5
+
 print = partial(print, flush=True)
 import warnings
+
 warnings.filterwarnings("ignore", category=DeprecationWarning)
 try:
     from jd_sign import *
@@ -32,6 +44,7 @@ except ImportError as e:
     sys.exit()
 try:
     from jdCookie import get_cookies
+
     getCk = get_cookies()
 except:
     print("请先下载依赖脚本，\n下载链接: https://raw.githubusercontent.com/HarbourJ/HarbourToulu/main/jdCookie.py")
@@ -53,11 +66,13 @@ activityId = jd_wdz_activityId
 activity_url = f"https://cjhy-isv.isvjcloud.com/microDz/invite/activity/wx/view/index/3499100?activityId={activityId}"
 print(f"【🛳活动入口】{activity_url}")
 
+
 def redis_conn():
     try:
         import redis
         try:
-            pool = redis.ConnectionPool(host=redis_url, port=redis_port, decode_responses=True, socket_connect_timeout=5, password=redis_pwd)
+            pool = redis.ConnectionPool(host=redis_url, port=redis_port, decode_responses=True,
+                                        socket_connect_timeout=5, password=redis_pwd)
             r = redis.Redis(connection_pool=pool)
             r.get('conn_test')
             print('✅redis连接成功')
@@ -67,6 +82,7 @@ def redis_conn():
     except:
         print("⚠️缺少redis依赖，请运行pip3 install redis")
         sys.exit()
+
 
 def getToken(ck, r=None):
     host = f'{activityUrl.split("com/")[0]}com'
@@ -139,15 +155,18 @@ def getToken(ck, r=None):
     except:
         return
 
+
 def getJdTime():
     jdTime = int(round(time.time() * 1000))
     return jdTime
+
 
 def randomString(e, flag=False):
     t = "0123456789abcdef"
     if flag: t = t.upper()
     n = [random.choice(t) for _ in range(e)]
     return ''.join(n)
+
 
 def refresh_cookies(res):
     if res.cookies:
@@ -160,7 +179,9 @@ def refresh_cookies(res):
                 if i.split('=')[0] == x.split('=')[0]:
                     if i.split('=')[1] != x.split('=')[1]:
                         activityCookieMid.remove(i)
-        activityCookie = ''.join(sorted([(set_cookie + ";") for set_cookie in list(set(activityCookieMid + set_cookie))]))
+        activityCookie = ''.join(
+            sorted([(set_cookie + ";") for set_cookie in list(set(activityCookieMid + set_cookie))]))
+
 
 def getActivity():
     url = activityUrl
@@ -189,6 +210,7 @@ def getActivity():
         print("⚠️ip疑似黑了,休息一会再来撸~")
         sys.exit()
 
+
 def getSystemConfigForNew():
     url = "https://cjhy-isv.isvjcloud.com/wxCommonInfo/getSystemConfigForNew"
     payload = f'activityId={activityId}&activityType=99'
@@ -207,6 +229,7 @@ def getSystemConfigForNew():
     }
     response = requests.request("POST", url, headers=headers, data=payload)
     refresh_cookies(response)
+
 
 def getMyPing(index):
     url = "https://cjhy-isv.isvjcloud.com/customer/getMyPing"
@@ -236,6 +259,7 @@ def getMyPing(index):
             print(f"\t⛈车头黑,退出本程序！")
             sys.exit()
 
+
 def getSimpleActInfoVo():
     url = "https://cjhy-isv.isvjcloud.com/microDz/invite/activity/wx/getActivityInfo"
     payload = f"activityId={activityId}"
@@ -255,10 +279,50 @@ def getSimpleActInfoVo():
     response = requests.request("POST", url, headers=headers, data=payload)
     # refresh_cookies(response)
     res = response.json()
+    print("karhow log: {}".format(res))
     if res['result']:
-        return res['data']['beansResidueByDay'], res['data']['residualPercentage'], res['data']['maxGroup'], res['data']['venderIds'], res['data']['actRule']
+        return res['data']['beansResidueByDay'], res['data']['residualPercentage'], res['data']['maxGroup'], \
+            res['data']['venderIds'], res['data']['actRule']
     else:
         print(res['errorMessage'])
+
+
+def getSimpleActInfoVoV2(retry_count: int):
+    next_count = retry_count - 1
+    res = getSimpleActInfoVoHelper()
+    if res['result']:
+        return res['data']['beansResidueByDay'], res['data']['residualPercentage'], res['data']['maxGroup'], \
+            res['data']['venderIds'], res['data']['actRule']
+    else:
+        if next_count > 0:
+            getSimpleActInfoVoV2(next_count)
+        else:
+            print('耗尽重试次数，返回')
+            print(res['errorMessage'])
+
+
+def getSimpleActInfoVoHelper():
+    url = "https://cjhy-isv.isvjcloud.com/microDz/invite/activity/wx/getActivityInfo"
+    payload = f"activityId={activityId}"
+    headers = {
+        'Host': 'cjhy-isv.isvjcloud.com',
+        'Accept': 'application/json',
+        'X-Requested-With': 'XMLHttpRequest',
+        'Accept-Language': 'zh-CN,zh-Hans;q=0.9',
+        'Accept-Encoding': 'gzip, deflate, br',
+        'Content-Type': 'application/x-www-form-urlencoded',
+        'Origin': 'https://cjhy-isv.isvjcloud.com',
+        'User-Agent': ua,
+        'Connection': 'keep-alive',
+        'Referer': activityUrl,
+        'Cookie': activityCookie
+    }
+    response = requests.request("POST", url, headers=headers, data=payload)
+    # refresh_cookies(response)
+    res = response.json()
+    print("karhow log: {}".format(res))
+    return res
+
 
 def accessLog(pin):
     url = "https://cjhy-isv.isvjcloud.com/common/accessLog"
@@ -278,6 +342,7 @@ def accessLog(pin):
     }
     response = requests.request("POST", url, headers=headers, data=payload)
     refresh_cookies(response)
+
 
 def getUserInfo(pin):
     url = "https://cjhy-isv.isvjcloud.com/wxActionCommon/getUserInfo"
@@ -302,6 +367,7 @@ def getUserInfo(pin):
         return res['data']['nickname'], res['data']['yunMidImageUrl'], res['data']['pin']
     else:
         print(res['errorMessage'])
+
 
 def getOpenCardAllStatuesNew(pin, again=1):
     url = "https://cjhy-isv.isvjcloud.com/microDz/invite/activity/wx/getOpenCardAllStatuesNew"
@@ -333,6 +399,7 @@ def getOpenCardAllStatuesNew(pin, again=1):
     else:
         print(res['errorMessage'])
 
+
 def isInvited(pin):
     url = "https://cjhy-isv.isvjcloud.com/microDz/invite/activity/wx/isInvited"
     payload = f"activityId={activityId}&pin={quote_plus(quote_plus(pin))}"
@@ -357,12 +424,14 @@ def isInvited(pin):
     else:
         print(res['errorMessage'])
 
+
 def acceptInvite(inviterNick, inviterPin, inviterImg, pin, nickName, inviteeImg):
     url = "https://cjhy-isv.isvjcloud.com/microDz/invite/activity/wx/acceptInvite"
     try:
         inviteeImg = quote_plus(inviteeImg)
     except:
-        inviteeImg = quote_plus("https://img10.360buyimg.com/imgzone/jfs/t1/21383/2/6633/3879/5c5138d8E0967ccf2/91da57c5e2166005.jpg")
+        inviteeImg = quote_plus(
+            "https://img10.360buyimg.com/imgzone/jfs/t1/21383/2/6633/3879/5c5138d8E0967ccf2/91da57c5e2166005.jpg")
     payload = f"activityId={activityId}&inviter={quote_plus(quote_plus(inviterPin))}&inviterImg={inviterImg}&inviterNick={quote_plus(inviterNick)}&invitee={quote_plus(quote_plus(pin))}&inviteeImg={inviteeImg}&inviteeNick={quote_plus(nickName)}"
     headers = {
         'Host': 'cjhy-isv.isvjcloud.com',
@@ -384,6 +453,7 @@ def acceptInvite(inviterNick, inviterPin, inviterImg, pin, nickName, inviteeImg)
         return res['data']
     else:
         print(res['errorMessage'])
+
 
 def bindWithVender(cookie, venderId):
     try:
@@ -412,6 +482,7 @@ def bindWithVender(cookie, venderId):
             return res['message']
     except Exception as e:
         print(e)
+
 
 def getShopOpenCardInfo(cookie, venderId):
     shopcard_url = f"https://shopmember.m.jd.com/shopcard/?venderId={venderId}&channel=401&returnUrl={quote_plus(activityUrl)}"
@@ -489,7 +560,7 @@ if __name__ == '__main__':
         time.sleep(0.5)
         activityCookie = getActivity()
         time.sleep(0.5)
-        getSimAct = getSimpleActInfoVo()
+        getSimAct = getSimpleActInfoVoV2(_retry_count)
         beansResidueByDay = getSimAct[0]
         residualPercentage = getSimAct[1]
         maxGroup = getSimAct[2]
@@ -522,7 +593,8 @@ if __name__ == '__main__':
                 reward = getOpenAllStat[1]
                 shopList = getOpenAllStat[2]
                 venderIds = venderIds.split(',')
-                unOpenCardLists = [(venderIds[i], val['shopName']) for i, val in enumerate(shopList) if not val['statue']]
+                unOpenCardLists = [(venderIds[i], val['shopName']) for i, val in enumerate(shopList) if
+                                   not val['statue']]
                 errorShopCard = 0
                 if unOpenCardLists:
                     print(f"未开卡店铺 {len(unOpenCardLists)}个")
